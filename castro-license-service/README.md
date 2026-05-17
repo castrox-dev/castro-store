@@ -26,6 +26,7 @@ npm start
 | `/gerar-licenca` | Comprador ou staff | Gera `NWPD` / `NWFT` / bundle |
 | `/revogar-licenca` | Staff | Revoga por utilizador ou ID |
 | `/status-licenca` | Todos | Lista licenças ativas |
+| `/keys-ativas` | Staff | Keys ativas: cliente, CFX, tempo ativo, filtros |
 
 ## Configurar no FiveM (cliente)
 

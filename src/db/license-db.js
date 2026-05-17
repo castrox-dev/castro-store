@@ -62,6 +62,45 @@ export function createLicenseRepo(db) {
     ON CONFLICT(discord_id, hour_bucket) DO UPDATE SET count = count + 1
   `);
 
+  const listActiveStmt = db.prepare(`
+    SELECT * FROM licenses
+    WHERE revoked = 0
+    ORDER BY created_at DESC
+    LIMIT ?
+  `);
+
+  const listActiveByDiscordStmt = db.prepare(`
+    SELECT * FROM licenses
+    WHERE revoked = 0 AND discord_id = ?
+    ORDER BY created_at DESC
+    LIMIT ?
+  `);
+
+  const listActiveByProductStmt = db.prepare(`
+    SELECT * FROM licenses
+    WHERE revoked = 0 AND product = ?
+    ORDER BY created_at DESC
+    LIMIT ?
+  `);
+
+  const listActiveByProductDiscordStmt = db.prepare(`
+    SELECT * FROM licenses
+    WHERE revoked = 0 AND product = ? AND discord_id = ?
+    ORDER BY created_at DESC
+    LIMIT ?
+  `);
+
+  const findActiveByKeyLikeStmt = db.prepare(`
+    SELECT * FROM licenses
+    WHERE revoked = 0 AND license_key LIKE ?
+    ORDER BY created_at DESC
+    LIMIT ?
+  `);
+
+  const countActiveStmt = db.prepare(`
+    SELECT COUNT(*) AS total FROM licenses WHERE revoked = 0
+  `);
+
   return {
     revokeActiveForProduct(cfxKey, product) {
       revokeActiveStmt.run(hashCfx(cfxKey), product);
@@ -105,6 +144,26 @@ export function createLicenseRepo(db) {
       }
       rateUpsertStmt.run(discordId, hourBucket);
       return { allowed: true, count: count + 1, hourBucket };
+    },
+
+    countActive() {
+      return countActiveStmt.get().total;
+    },
+
+    listActive({ discordId = null, product = null, limit = 25 } = {}) {
+      const cap = Math.min(Math.max(1, limit), 50);
+      if (discordId && product) {
+        return listActiveByProductDiscordStmt.all(product, discordId, cap);
+      }
+      if (discordId) return listActiveByDiscordStmt.all(discordId, cap);
+      if (product) return listActiveByProductStmt.all(product, cap);
+      return listActiveStmt.all(cap);
+    },
+
+    searchActiveByKeyFragment(fragment, limit = 10) {
+      const q = `%${String(fragment || '').trim().toUpperCase()}%`;
+      if (q === '%%') return [];
+      return findActiveByKeyLikeStmt.all(q, Math.min(limit, 20));
     },
   };
 }

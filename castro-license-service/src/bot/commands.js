@@ -2,6 +2,14 @@ import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.
 import { canGenerate, canRevoke, isStaff } from './permissions.js';
 import { sendAuditLog } from '../services/audit.js';
 import { config } from '../config.js';
+import {
+  formatActiveDuration,
+  formatCreatedAt,
+  formatDiscordUser,
+  maskCfx,
+  productLabel,
+} from '../utils/license-format.js';
+import { normalizeLicenseKey } from '../license/algo.js';
 
 export const commandDefinitions = [
   new SlashCommandBuilder()
@@ -41,6 +49,24 @@ export const commandDefinitions = [
     .setName('status-licenca')
     .setDescription('Mostra as tuas licenças (ou de outro user, se staff)')
     .addUserOption((o) => o.setName('usuario').setDescription('Staff: ver licenças de outro utilizador')),
+
+  new SlashCommandBuilder()
+    .setName('keys-ativas')
+    .setDescription('Staff: lista keys ativas, clientes e tempo de ativação')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addStringOption((o) =>
+      o.setName('chave').setDescription('Filtrar por key (completa ou parte, ex: NWPD-ABC)')
+    )
+    .addUserOption((o) => o.setName('cliente').setDescription('Filtrar por cliente Discord'))
+    .addStringOption((o) =>
+      o
+        .setName('produto')
+        .setDescription('Filtrar por produto')
+        .addChoices(
+          { name: 'Police', value: 'police' },
+          { name: 'Faction', value: 'faction' }
+        )
+    ),
 ].map((c) => c.toJSON());
 
 function parseTicketOwnerId(channel) {
@@ -85,6 +111,84 @@ function buildLicenseEmbed(result, productLabel, { forClient = false, staffUser 
     embed.addFields({
       name: 'API (opcional — só staff vê detalhes)',
       value: `\`\`\`lua\nConfig.LicenseApiUrl = 'http://SEU_IP:${config.api.port}/v1/license/validate'\nConfig.LicenseApiSecret = '(ver staff)'\n\`\`\``,
+      inline: false,
+    });
+  }
+
+  return embed;
+}
+
+function buildKeyDetailEmbed(row) {
+  return new EmbedBuilder()
+    .setTitle(`Key ativa #${row.id}`)
+    .setColor(0x3498db)
+    .addFields(
+      { name: 'Licença', value: `\`${row.license_key}\``, inline: false },
+      { name: 'Cliente', value: formatDiscordUser(row), inline: false },
+      { name: 'Discord ID', value: `\`${row.discord_id}\``, inline: true },
+      { name: 'Produto', value: productLabel(row.product), inline: true },
+      { name: 'Resource', value: `\`${row.resource_name}\``, inline: true },
+      { name: 'Product ID', value: `\`${row.product_id}\``, inline: true },
+      { name: 'Servidor (CFX)', value: `\`${maskCfx(row.cfx_key)}\``, inline: true },
+      { name: 'Registada em', value: formatCreatedAt(row.created_at), inline: true },
+      { name: 'Ativa há', value: formatActiveDuration(row.created_at), inline: true }
+    )
+    .setFooter({ text: 'CASTRO STORE • Staff' })
+    .setTimestamp();
+}
+
+function buildActiveKeysListEmbed(rows, { totalActive, filters }) {
+  const filterParts = [];
+  if (filters.chave) filterParts.push(`chave: \`${filters.chave}\``);
+  if (filters.clienteId) filterParts.push(`cliente: <@${filters.clienteId}>`);
+  if (filters.produto) filterParts.push(`produto: ${productLabel(filters.produto)}`);
+
+  const embed = new EmbedBuilder()
+    .setTitle('Keys ativas')
+    .setColor(0x2ecc71)
+    .setDescription(
+      filterParts.length ? `Filtros: ${filterParts.join(' • ')}` : 'Todas as licenças ativas na base de dados.'
+    )
+    .setFooter({
+      text: `Mostrando ${rows.length} de ${totalActive} ativa(s) • CASTRO STORE`,
+    })
+    .setTimestamp();
+
+  if (rows.length === 0) {
+    embed.addFields({ name: 'Resultado', value: '_Nenhuma key ativa com estes filtros._' });
+    return embed;
+  }
+
+  const lines = rows.map((r) => {
+    const duration = formatActiveDuration(r.created_at);
+    const keyShort =
+      r.license_key.length > 22 ? `${r.license_key.slice(0, 20)}…` : r.license_key;
+    return (
+      `**#${r.id}** \`${keyShort}\`\n` +
+      `└ ${formatDiscordUser(r)} · **${productLabel(r.product)}** · há **${duration}** · ${formatCreatedAt(r.created_at)}`
+    );
+  });
+
+  let chunk = '';
+  let fieldIndex = 1;
+  for (const line of lines) {
+    const next = chunk ? `${chunk}\n\n${line}` : line;
+    if (next.length > 1000) {
+      embed.addFields({ name: `Licenças (${fieldIndex})`, value: chunk });
+      chunk = line;
+      fieldIndex += 1;
+    } else {
+      chunk = next;
+    }
+  }
+  if (chunk) {
+    embed.addFields({ name: fieldIndex === 1 ? 'Licenças' : `Licenças (${fieldIndex})`, value: chunk });
+  }
+
+  if (totalActive > rows.length) {
+    embed.addFields({
+      name: 'Mais resultados',
+      value: `Existem **${totalActive - rows.length}** key(s) ativa(s) não mostradas. Use \`chave\`, \`cliente\` ou \`produto\` para filtrar.`,
       inline: false,
     });
   }
@@ -253,6 +357,57 @@ export function createCommandHandlers(licenseService, repo) {
         );
 
       return interaction.reply({ embeds: [embed], ephemeral: true });
+    },
+
+    async 'keys-ativas'(interaction) {
+      if (!isStaff(interaction.member)) {
+        return interaction.reply({ content: 'Apenas staff.', ephemeral: true });
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+
+      const chaveOpt = interaction.options.getString('chave');
+      const cliente = interaction.options.getUser('cliente');
+      const produto = interaction.options.getString('produto');
+
+      const filters = {
+        chave: chaveOpt,
+        clienteId: cliente?.id ?? null,
+        produto,
+      };
+
+      if (chaveOpt) {
+        const normalized = normalizeLicenseKey(chaveOpt);
+        const exact = repo.findByLicenseKey(normalized);
+        const rows = exact ? [exact] : repo.searchActiveByKeyFragment(normalized, 10);
+
+        if (rows.length === 0) {
+          return interaction.editReply({
+            content: `Nenhuma key ativa encontrada para \`${chaveOpt}\`.`,
+          });
+        }
+
+        if (rows.length === 1) {
+          return interaction.editReply({ embeds: [buildKeyDetailEmbed(rows[0])] });
+        }
+
+        const totalActive = repo.countActive();
+        return interaction.editReply({
+          content: `**${rows.length}** keys ativas correspondem a \`${chaveOpt}\`. Detalhe de cada uma abaixo (use a key completa para ver só uma):`,
+          embeds: rows.slice(0, 5).map((r) => buildKeyDetailEmbed(r)),
+        });
+      }
+
+      const totalActive = repo.countActive();
+      const rows = repo.listActive({
+        discordId: cliente?.id ?? null,
+        product: produto,
+        limit: 25,
+      });
+
+      return interaction.editReply({
+        embeds: [buildActiveKeysListEmbed(rows, { totalActive, filters })],
+      });
     },
   };
 }
