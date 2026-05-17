@@ -5,6 +5,7 @@ import { createApiServer, startApiServer } from './api/server.js';
 import { startDiscordBot } from './bot/index.js';
 
 async function main() {
+  console.log('[castro-license-service] build: node:sqlite (v1.0.1 — sem better-sqlite3)');
   assertConfig();
 
   const db = openDatabase(config.databasePath);
