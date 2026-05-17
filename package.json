@@ -1,0 +1,20 @@
+{
+  "name": "fivem-loja-discord-bot",
+  "version": "1.0.0",
+  "description": "Bot Discord para loja de scripts FiveM",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy": "node src/deploy-commands.js",
+    "postinstall": "node -e \"console.log('Dependências instaladas. Configure o .env e rode: npm run deploy && npm start')\""
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.7",
+    "express": "^4.22.2"
+  }
+}

@@ -1,0 +1,7 @@
+node_modules/
+.env
+data/
+data/licenses.db
+data/licenses.db-*
+*.log
+_SELLER_ONLY/

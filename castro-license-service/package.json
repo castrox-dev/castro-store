@@ -1,0 +1,21 @@
+{
+  "name": "castro-license-service",
+  "version": "1.0.0",
+  "description": "API + Bot Discord — licenças V3 Police/Faction Tablet (Castro Store)",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "register-commands": "node src/bot/register-commands.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  }
+}
