@@ -4,7 +4,7 @@ Bot Discord + API HTTP para licenças **V3** dos tablets `police_tablet_licensed
 
 ## Requisitos
 
-- Node.js 18+
+- Node.js 22.5+ (SQLite nativo `node:sqlite`; sem módulos nativos no deploy)
 - Bot Discord ([Discord Developer Portal](https://discord.com/developers/applications))
 - Porta TCP aberta para o FiveM chamar a API (ex.: `3847`)
 
